@@ -22,9 +22,7 @@ class User < ApplicationRecord
     paused?
   ].freeze
 
-  # rubocop:disable Lint/AmbiguousOperator
   delegate *USER_PREFERENCES, to: :user_preference, allow_nil: true
-  # rubocop:enable Lint/AmbiguousOperator
 
   def timezone
     raw = user_preference&.timezone || Rails.application.config.time_zone
@@ -102,6 +100,8 @@ class User < ApplicationRecord
       iat: Time.now.to_i
     }
     JWT.encode(payload, Rails.application.secrets.jwt_secret_key, "HS256")
+
+    binding.pry
   end
 
   private
