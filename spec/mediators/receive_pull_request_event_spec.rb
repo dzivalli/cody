@@ -260,5 +260,77 @@ RSpec.describe ReceivePullRequestEvent do
         end
       end
     end
+
+    context "when the action is \"review_requested\"" do
+      let!(:pr) { FactoryBot.create :pull_request, number: payload["number"], repository: repo }
+
+      let(:action) { "review_requested" }
+      let(:payload) { json_fixture(:review_requested, requested_reviewer: "aergonaut") }
+
+      it "calls on_review_requested" do
+        expect(job).to receive(:on_review_requested)
+        job.perform(payload)
+      end
+
+      context "and the requested reviewer is not already a peer reviewer" do
+        it "adds the requested reviewer as a peer reviewer" do
+          expect {
+            job.perform(payload)
+          }.to change {
+            pr.reviewers.exists?(login: "aergonaut", review_rule_id: nil)
+          }.from(false).to(true)
+        end
+      end
+
+      context "but the requested reviewer is already a peer reviewer" do
+        before do
+          pr.reviewers.create!(login: "aergonaut", review_rule_id: nil)
+        end
+
+        it "does not create a new reviewer record" do
+          expect {
+            job.perform(payload)
+          }.to_not change {
+            pr.reviewers.where(login: "aergonaut", review_rule_id: nil).count
+          }
+        end
+      end
+    end
+
+    context "when the action is \"review_request_removed\"" do
+      let!(:pr) { FactoryBot.create :pull_request, number: payload["number"], repository: repo }
+
+      let(:action) { "review_requested" }
+      let(:payload) { json_fixture(:review_requested, requested_reviewer: "aergonaut", action: "review_request_removed") }
+
+      it "calls on_review_request_removed" do
+        expect(job).to receive(:on_review_request_removed)
+        job.perform(payload)
+      end
+
+      context "and the requested reviewer is not already a peer reviewer" do
+        it "does not change the reviewers" do
+          expect {
+            job.perform(payload)
+          }.to_not change {
+            pr.reviewers.where(login: "aergonaut", review_rule_id: nil).count
+          }
+        end
+      end
+
+      context "and the requested reviewer is already a peer reviewer" do
+        before do
+          pr.reviewers.create!(login: "aergonaut", review_rule_id: nil)
+        end
+
+        it "destroys the reviewer object" do
+          expect {
+            job.perform(payload)
+          }.to change {
+            pr.reviewers.exists?(login: "aergonaut", review_rule_id: nil)
+          }.from(true).to(false)
+        end
+      end
+    end
   end
 end

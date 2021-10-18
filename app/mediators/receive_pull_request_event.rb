@@ -63,6 +63,10 @@ class ReceivePullRequestEvent
         on_synchronize
       when "closed"
         on_closed
+      when "review_requested"
+        on_review_requested
+      when "review_request_removed"
+        on_review_request_removed
       when "unlabeled"
         # Stop responding to unlabeled as we transition to the Draft status
         # on_unlabeled
@@ -94,6 +98,45 @@ class ReceivePullRequestEvent
   # commit with the correct status indicator.
   def on_synchronize
     CreateOrUpdatePullRequest.new.perform(@payload["pull_request"])
+  end
+
+  # This function is called whenever a review is requested.
+  #
+  # We take a new review request to be equivalent to adding a new peer reviewer.
+  # We use `find_or_create_by!` to avoid creating duplicate peer reviewer
+  # records.
+  def on_review_requested
+    number = @payload["number"]
+    if (pr = @repository.pull_requests.find_by(number: number))
+      pr.reviewers.pending_review.find_or_create_by!(review_rule_id: nil, login: @payload["requested_reviewer"]["login"])
+
+      if pr.reviewers.pending_review.empty?
+        pr.status = PullRequest::STATUS_APPROVED
+        pr.save!
+        pr.update_status
+      end
+
+      pr.assign_reviewers
+    end
+  end
+
+  # This function is called whenever a review request is removed.
+  #
+  # We take this event to mean that a peer reviewer is being removed, so we
+  # search for all peer reviewer records with the given login and destroy them.
+  def on_review_request_removed
+    number = @payload["number"]
+    if (pr = @repository.pull_requests.find_by(number: number))
+      pr.reviewers.pending_review.where(review_rule_id: nil, login: @payload["requested_reviewer"]["login"]).destroy_all
+
+      if pr.reviewers.pending_review.empty?
+        pr.status = PullRequest::STATUS_APPROVED
+        pr.save!
+        pr.update_status
+      end
+
+      pr.assign_reviewers
+    end
   end
 
   # This function is called whenever a label is removed.
